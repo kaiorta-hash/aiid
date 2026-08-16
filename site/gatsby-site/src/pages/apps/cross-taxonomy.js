@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { useApolloClient } from '@apollo/client';
-import gql from 'graphql-tag';
-import { FIND_CLASSIFICATION } from '../../graphql/classifications';
-import { Button, Spinner, Card, Badge } from 'flowbite-react';
+import React, { useState, useMemo, useCallback } from 'react';
+import { graphql } from 'gatsby';
+import { Button, Card, Badge } from 'flowbite-react';
 import SearchableSelect from 'components/visualizations/SearchableSelect';
 import { Trans, useTranslation } from 'react-i18next';
-import { useUserContext } from 'contexts/UserContext';
 import HeadContent from 'components/HeadContent';
 import CrossTaxonomyChart from 'components/visualizations/CrossTaxonomyChart';
 import GuidedAnalysisTab from 'components/visualizations/GuidedAnalysisTab';
@@ -16,6 +13,13 @@ import {
   buildIncidentEntityMap,
   getFieldValues,
 } from 'utils/crossTaxonomy';
+import {
+  transformTaxas,
+  transformClassifications,
+  transformIncidents,
+  buildTimeTaxa,
+  buildTimeClassifications,
+} from 'utils/crossTaxonomyStatic';
 import { StringParam, useQueryParams, withDefault } from 'use-query-params';
 
 const TABS = [
@@ -271,47 +275,6 @@ const CHART_TYPES = [
   { value: 'line', label: 'Line Chart' },
 ];
 
-const FIND_TAXA = gql`
-  query FindTaxa {
-    taxas {
-      namespace
-      weight
-      description
-      field_list {
-        field_number
-        short_name
-        long_name
-        display_type
-        mongo_type
-        permitted_values
-        instant_facet
-        public
-      }
-    }
-  }
-`;
-
-const FIND_INCIDENTS_ENTITIES = gql`
-  query FindIncidentsEntities {
-    incidents(pagination: { limit: 9999, skip: 0 }) {
-      incident_id
-      date
-      AllegedDeveloperOfAISystem {
-        entity_id
-        name
-      }
-      AllegedDeployerOfAISystem {
-        entity_id
-        name
-      }
-      AllegedHarmedOrNearlyHarmedParties {
-        entity_id
-        name
-      }
-    }
-  }
-`;
-
 // Split "namespace::field" key into its parts.
 function parseKey(key) {
   if (!key) return { namespace: '', field: '' };
@@ -525,16 +488,8 @@ function ExplorerPanel({
 }
 // ---------------------------------------------------------------------------
 
-export default function CrossTaxonomyPage(props) {
-  const { isAdmin } = useUserContext();
-
+export default function CrossTaxonomyPage({ data, ...props }) {
   const { t } = useTranslation();
-
-  const client = useApolloClient();
-
-  const [loading, setLoading] = useState(true);
-
-  const [error, setError] = useState(null);
 
   const [coverageDismissed, setCoverageDismissed] = useState(() => {
     try {
@@ -553,11 +508,26 @@ export default function CrossTaxonomyPage(props) {
     setCoverageDismissed(true);
   };
 
-  const [allTaxas, setAllTaxas] = useState([]);
+  // All data is baked into the page at build time (see `pageQuery` below), so
+  // the page performs no runtime API requests. The transforms convert Gatsby
+  // node shapes into the plain shapes the crossTaxonomy utils consume; the
+  // synthetic "Time" taxa lets incident years act as a regular taxonomy field.
+  const allTaxas = useMemo(() => [buildTimeTaxa(), ...transformTaxas(data?.taxas?.nodes)], [data]);
 
-  const [allClassifications, setAllClassifications] = useState([]);
+  const incidentsData = useMemo(
+    () => transformIncidents(data?.incidents?.nodes, data?.entities?.nodes),
+    [data]
+  );
 
-  const [incidentEntityMap, setIncidentEntityMap] = useState(new Map());
+  const allClassifications = useMemo(
+    () => [
+      ...transformClassifications(data?.classifications?.nodes),
+      ...buildTimeClassifications(incidentsData),
+    ],
+    [data, incidentsData]
+  );
+
+  const incidentEntityMap = useMemo(() => buildIncidentEntityMap(incidentsData), [incidentsData]);
 
   // Extra graph panels (first panel uses URL params below)
   const [extraPanels, setExtraPanels] = useState([]);
@@ -638,93 +608,6 @@ export default function CrossTaxonomyPage(props) {
     setExtraPanels((prev) => prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)));
   }, []);
 
-  // Fetch all taxa and classifications on mount
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-      try {
-        // no-cache: this page bulk-loads thousands of read-only docs and keeps
-        // them in React state. Skipping Apollo's normalization/cache writes for
-        // data we never re-read avoids a large load-time and memory cost.
-        const [taxaResult, classResult, incidentsResult] = await Promise.all([
-          client.query({ query: FIND_TAXA, fetchPolicy: 'no-cache' }),
-          client.query({
-            query: FIND_CLASSIFICATION,
-            variables: { filter: {} },
-            fetchPolicy: 'no-cache',
-          }),
-          client.query({ query: FIND_INCIDENTS_ENTITIES, fetchPolicy: 'no-cache' }),
-        ]);
-
-        if (cancelled) return;
-
-        let taxas = taxaResult.data.taxas;
-
-        if (!isAdmin) {
-          taxas = taxas.map((taxa) => ({
-            ...taxa,
-            field_list: taxa.field_list.filter((f) => f.public !== false),
-          }));
-        }
-
-        const classifications = classResult.data.classifications.filter(
-          (c) => c.attributes && (c.publish || isAdmin)
-        );
-
-        // Synthetic "Time" taxa and per-incident Year pseudo-classifications.
-        // Injecting them into the same arrays lets all existing data-processing
-        // functions (buildCrossData, buildFilteredCounts, etc.) work with time
-        // as if it were a regular taxonomy field, with zero changes to those utils.
-        const timeTaxa = {
-          namespace: 'Time',
-          weight: 0,
-          description: 'Year the incident was reported',
-          field_list: [
-            {
-              field_number: '0',
-              short_name: 'Year',
-              long_name: 'Year',
-              display_type: 'enum',
-              mongo_type: 'string',
-              permitted_values: [],
-              instant_facet: false,
-              public: true,
-            },
-          ],
-        };
-
-        const incidentsData = incidentsResult.data.incidents || [];
-
-        const timeClassifications = incidentsData
-          .filter((inc) => inc.date && inc.date.length >= 4)
-          .map((inc) => ({
-            namespace: 'Time',
-            incidents: [{ incident_id: inc.incident_id }],
-            attributes: [
-              { short_name: 'Year', value_json: JSON.stringify(inc.date.substring(0, 4)) },
-            ],
-            publish: true,
-          }));
-
-        setAllTaxas([timeTaxa, ...taxas]);
-        setAllClassifications([...classifications, ...timeClassifications]);
-        setIncidentEntityMap(buildIncidentEntityMap(incidentsData));
-      } catch (err) {
-        if (!cancelled) setError(err);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchData();
-    return () => {
-      cancelled = true;
-    };
-  }, [isAdmin]);
-
   // Shared computed data
   const groupedClassifications = useMemo(
     () => groupClassificationsByIncident(allClassifications),
@@ -785,140 +668,122 @@ export default function CrossTaxonomyPage(props) {
           )}
         </div>
 
-        {loading && (
-          <div className="flex items-center gap-2 py-8 justify-center">
-            <Spinner size="lg" />
-            <Trans>Loading taxonomy data...</Trans>
+        {/* Coverage notice */}
+        {!coverageDismissed && (
+          <div className="flex items-start justify-between gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
+            <span>
+              <Trans>
+                ⓘ Coverage is partial: charts reflect only incidents annotated by taxonomy
+                reviewers, not all {{ total: incidentEntityMap.size }} incidents in the database.
+              </Trans>
+            </span>
+            <button
+              type="button"
+              onClick={dismissCoverage}
+              className="text-gray-400 hover:text-gray-600 shrink-0 leading-none text-base"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
           </div>
         )}
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
-            <Trans>Failed to load taxonomy data. Please refresh the page.</Trans>
-          </div>
+        {/* Tab bar */}
+        <div className="border-b border-gray-200">
+          <nav className="flex flex-wrap -mb-px gap-0">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  activeTab === tab.id
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                {t(tab.label)}
+              </button>
+            ))}
+          </nav>
+        </div>
+
+        {/* Guided tabs */}
+        {activeTab !== 'custom' && GUIDED_TAB_CONFIGS[activeTab] && (
+          <GuidedAnalysisTab
+            config={GUIDED_TAB_CONFIGS[activeTab]}
+            selectedValue={guidedSelection}
+            onSelectValue={setGuidedSelection}
+            groupedClassifications={groupedClassifications}
+            allClassifications={allClassifications}
+            incidentEntityMap={incidentEntityMap}
+            totalIncidents={incidentEntityMap.size}
+            fieldSelectOptions={fieldSelectOptions}
+          />
         )}
 
-        {!loading && !error && (
-          <>
-            {/* Coverage notice */}
-            {!coverageDismissed && (
-              <div className="flex items-start justify-between gap-3 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-600">
-                <span>
-                  <Trans>
-                    ⓘ Coverage is partial: charts reflect only incidents annotated by taxonomy
-                    reviewers, not all {{ total: incidentEntityMap.size }} incidents in the
-                    database.
-                  </Trans>
-                </span>
-                <button
-                  type="button"
-                  onClick={dismissCoverage}
-                  className="text-gray-400 hover:text-gray-600 shrink-0 leading-none text-base"
-                  aria-label="Dismiss"
-                >
-                  ×
-                </button>
-              </div>
-            )}
+        {/* Custom explorer tab */}
+        {activeTab === 'custom' && (
+          <div className="flex flex-col gap-8">
+            {/* First panel — axes stored in URL params for shareability */}
+            <ExplorerPanel
+              chartType={chartType}
+              onChartTypeChange={setChartType}
+              xAxisKey={xAxisKey}
+              onXAxisChange={setXAxisKey}
+              yAxisKey={yAxisKey}
+              onYAxisChange={setYAxisKey}
+              filterKey={filterKey}
+              onFilterKeyChange={setFilterKey}
+              filterValue={filterValue}
+              onFilterValueChange={setFilterValue}
+              onRemove={null}
+              groupedClassifications={groupedClassifications}
+              allClassifications={allClassifications}
+              fieldSelectOptions={fieldSelectOptions}
+              totalIncidents={incidentEntityMap.size}
+            />
 
-            {/* Tab bar */}
-            <div className="border-b border-gray-200">
-              <nav className="flex flex-wrap -mb-px gap-0">
-                {TABS.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id)}
-                    className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
-                      activeTab === tab.id
-                        ? 'border-blue-500 text-blue-600'
-                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                    }`}
-                  >
-                    {t(tab.label)}
-                  </button>
-                ))}
-              </nav>
-            </div>
-
-            {/* Guided tabs */}
-            {activeTab !== 'custom' && GUIDED_TAB_CONFIGS[activeTab] && (
-              <GuidedAnalysisTab
-                config={GUIDED_TAB_CONFIGS[activeTab]}
-                selectedValue={guidedSelection}
-                onSelectValue={setGuidedSelection}
-                groupedClassifications={groupedClassifications}
-                allClassifications={allClassifications}
-                incidentEntityMap={incidentEntityMap}
-                totalIncidents={incidentEntityMap.size}
-                fieldSelectOptions={fieldSelectOptions}
-              />
-            )}
-
-            {/* Custom explorer tab */}
-            {activeTab === 'custom' && (
-              <div className="flex flex-col gap-8">
-                {/* First panel — axes stored in URL params for shareability */}
+            {/* Extra panels */}
+            {extraPanels.map((panel) => (
+              <div key={panel.id} className="flex flex-col gap-0">
+                {/* Divider connecting panels visually */}
+                <div className="flex items-center gap-3 py-2">
+                  <div className="flex-1 border-t border-dashed border-gray-300" />
+                  <span className="text-xs text-gray-400 uppercase tracking-wide">
+                    <Trans>Graph {extraPanels.indexOf(panel) + 2}</Trans>
+                  </span>
+                  <div className="flex-1 border-t border-dashed border-gray-300" />
+                </div>
                 <ExplorerPanel
-                  chartType={chartType}
-                  onChartTypeChange={setChartType}
-                  xAxisKey={xAxisKey}
-                  onXAxisChange={setXAxisKey}
-                  yAxisKey={yAxisKey}
-                  onYAxisChange={setYAxisKey}
-                  filterKey={filterKey}
-                  onFilterKeyChange={setFilterKey}
-                  filterValue={filterValue}
-                  onFilterValueChange={setFilterValue}
-                  onRemove={null}
+                  chartType={panel.chartType}
+                  onChartTypeChange={(v) => updatePanel(panel.id, 'chartType', v)}
+                  xAxisKey={panel.xAxisKey}
+                  onXAxisChange={(v) => updatePanel(panel.id, 'xAxisKey', v)}
+                  yAxisKey={panel.yAxisKey}
+                  onYAxisChange={(v) => updatePanel(panel.id, 'yAxisKey', v)}
+                  filterKey={panel.filterKey}
+                  onFilterKeyChange={(v) => {
+                    updatePanel(panel.id, 'filterKey', v);
+                    updatePanel(panel.id, 'filterValue', '');
+                  }}
+                  filterValue={panel.filterValue}
+                  onFilterValueChange={(v) => updatePanel(panel.id, 'filterValue', v)}
+                  onRemove={() => removePanel(panel.id)}
                   groupedClassifications={groupedClassifications}
                   allClassifications={allClassifications}
                   fieldSelectOptions={fieldSelectOptions}
                   totalIncidents={incidentEntityMap.size}
                 />
-
-                {/* Extra panels */}
-                {extraPanels.map((panel) => (
-                  <div key={panel.id} className="flex flex-col gap-0">
-                    {/* Divider connecting panels visually */}
-                    <div className="flex items-center gap-3 py-2">
-                      <div className="flex-1 border-t border-dashed border-gray-300" />
-                      <span className="text-xs text-gray-400 uppercase tracking-wide">
-                        <Trans>Graph {extraPanels.indexOf(panel) + 2}</Trans>
-                      </span>
-                      <div className="flex-1 border-t border-dashed border-gray-300" />
-                    </div>
-                    <ExplorerPanel
-                      chartType={panel.chartType}
-                      onChartTypeChange={(v) => updatePanel(panel.id, 'chartType', v)}
-                      xAxisKey={panel.xAxisKey}
-                      onXAxisChange={(v) => updatePanel(panel.id, 'xAxisKey', v)}
-                      yAxisKey={panel.yAxisKey}
-                      onYAxisChange={(v) => updatePanel(panel.id, 'yAxisKey', v)}
-                      filterKey={panel.filterKey}
-                      onFilterKeyChange={(v) => {
-                        updatePanel(panel.id, 'filterKey', v);
-                        updatePanel(panel.id, 'filterValue', '');
-                      }}
-                      filterValue={panel.filterValue}
-                      onFilterValueChange={(v) => updatePanel(panel.id, 'filterValue', v)}
-                      onRemove={() => removePanel(panel.id)}
-                      groupedClassifications={groupedClassifications}
-                      allClassifications={allClassifications}
-                      fieldSelectOptions={fieldSelectOptions}
-                      totalIncidents={incidentEntityMap.size}
-                    />
-                  </div>
-                ))}
-
-                {/* Add Graph button */}
-                <div className="flex justify-center pt-2">
-                  <Button color="light" onClick={addPanel}>
-                    + <Trans>New Graph</Trans>
-                  </Button>
-                </div>
               </div>
-            )}
-          </>
+            ))}
+
+            {/* Add Graph button */}
+            <div className="flex justify-center pt-2">
+              <Button color="light" onClick={addPanel}>
+                + <Trans>New Graph</Trans>
+              </Button>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -938,3 +803,56 @@ export const Head = (props) => {
     />
   );
 };
+
+// Build-time data query. All of the page's data is baked into the static build
+// and served from the CDN, so visiting this page triggers no runtime API
+// requests or database queries. Unpublished classifications are excluded at
+// build time; non-public taxa fields are filtered in transformTaxas.
+export const query = graphql`
+  query CrossTaxonomyPageQuery {
+    taxas: allMongodbAiidprodTaxa {
+      nodes {
+        namespace
+        weight
+        description
+        field_list {
+          field_number
+          short_name
+          long_name
+          display_type
+          mongo_type
+          permitted_values
+          instant_facet
+          public
+        }
+      }
+    }
+    classifications: allMongodbAiidprodClassifications(filter: { publish: { eq: true } }) {
+      nodes {
+        namespace
+        incidents {
+          incident_id
+        }
+        attributes {
+          short_name
+          value_json
+        }
+      }
+    }
+    incidents: allMongodbAiidprodIncidents {
+      nodes {
+        incident_id
+        date
+        Alleged_deployer_of_AI_system
+        Alleged_developer_of_AI_system
+        Alleged_harmed_or_nearly_harmed_parties
+      }
+    }
+    entities: allMongodbAiidprodEntities {
+      nodes {
+        entity_id
+        name
+      }
+    }
+  }
+`;

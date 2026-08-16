@@ -1,5 +1,10 @@
 # Cross-Taxonomy Visualization — Server Load Analysis & Optimization Plan
 
+> **Status: Tier 3 is implemented on this branch.** The page now loads all data
+> from the Gatsby build (`pageQuery` in `src/pages/apps/cross-taxonomy.js` +
+> transforms in `src/utils/crossTaxonomyStatic.js`) and makes **zero runtime API
+> requests**. See §6 for the verification record.
+
 This document analyzes the server cost of the cross-taxonomy visualization feature
 (PR #3935, branch `feature/cross-taxonomy-visualization`) and lays out an optimization
 ladder, from client-only quick wins to a zero-server-load design. It also explains the
