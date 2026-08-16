@@ -245,3 +245,39 @@ It's wasteful because (a) the runtime API multiplies one logical fetch into ~8,0
 physical queries via per-document relationship resolvers, and (b) the fetch happens at
 **runtime** through a serverless API when the same data is already available at
 **build time** for free. Fix (b) and the server has nothing left to object to.
+
+---
+
+## 6. Verification record (Tier 3 implementation)
+
+Static checks:
+
+- `npx jest --config jest.utils.config.js` — **78/78 tests pass** (57 existing
+  data-pipeline tests unchanged + 21 new transform tests, including an
+  end-to-end pass of build-node fixtures through `groupClassificationsByIncident`
+  → `buildCrossData`).
+- `npx eslint` and `npx prettier` clean on all changed files; repo pre-commit
+  hooks pass.
+- Every field in the new `pageQuery` was verified against `typeDefs.js` and
+  matches fields already queried at build time by `apps/incidents.js`
+  (incident + entity fields), `templates/taxonomy.js` (classifications with
+  linked `incidents { incident_id }` and `publish`), and
+  `summaries/cset-charts.js` (attributes).
+
+Full-build verification (run in a sandbox against a seeded local
+Mongo-compatible database, mirroring the CI e2e workflow):
+
+- `gatsby build` completes: **123/123 page queries succeed** (including
+  `CrossTaxonomyPageQuery`) and **static HTML renders for all pages** —
+  i.e. the page SSRs cleanly with real data.
+- `public/page-data/apps/cross-taxonomy/page-data.json` contains exactly the
+  four datasets (taxa, published classifications with linked incident ids,
+  incidents with raw entity-id arrays, entities) — ~97 KB with seed data.
+- Headless-browser pass over the built site: page loads with **zero runtime
+  GraphQL requests**; every guided tab renders charts after a selection; the
+  Custom Explorer renders every cross-namespace field-pair combination
+  (CSETv1 × GMF × MIT × Time, both directions, plus same-namespace and
+  filtered variants) driven through the URL-param API; no page errors.
+- Hydration note: because the static HTML is built without URL params, the
+  page applies query params only after mount (`mounted` flag) — deep links
+  still work and React hydration is clean (no #418/#423).

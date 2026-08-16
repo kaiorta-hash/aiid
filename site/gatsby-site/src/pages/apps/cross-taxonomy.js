@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { graphql } from 'gatsby';
 import { Button, Card, Badge } from 'flowbite-react';
 import SearchableSelect from 'components/visualizations/SearchableSelect';
@@ -543,21 +543,30 @@ export default function CrossTaxonomyPage({ data, ...props }) {
     filterValue: withDefault(StringParam, ''),
   });
 
+  // The static HTML for this page is rendered at build time without URL params,
+  // so params must be applied only after mount — the first client render has to
+  // match the built HTML exactly or React reports a hydration mismatch (#418).
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Fall back to the default tab for unknown ids (e.g. stale ?tab=harmed URLs shared
   // before the harmed-party tab was folded into the "By Affected" tab's mode toggle).
-  const activeTab = TABS.some((t) => t.id === query.tab) ? query.tab : 'developer';
+  const activeTab = mounted && TABS.some((t) => t.id === query.tab) ? query.tab : 'developer';
 
-  const guidedSelection = query.sel || '';
+  const guidedSelection = (mounted && query.sel) || '';
 
-  const chartType = query.chartType || 'bar';
+  const chartType = (mounted && query.chartType) || 'bar';
 
-  const xAxisKey = query.x || '';
+  const xAxisKey = (mounted && query.x) || '';
 
-  const yAxisKey = query.y || '';
+  const yAxisKey = (mounted && query.y) || '';
 
-  const filterKey = query.filterField || '';
+  const filterKey = (mounted && query.filterField) || '';
 
-  const filterValue = query.filterValue || '';
+  const filterValue = (mounted && query.filterValue) || '';
 
   const setActiveTab = useCallback(
     (tab) => setQuery({ tab: tab || undefined, sel: undefined }),
