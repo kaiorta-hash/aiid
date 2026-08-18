@@ -47,10 +47,10 @@ export default function CrossTaxonomyChart({ chartType, crossData, xLabel, yLabe
 
   if (!options) return null;
 
-  // Custom legend entries for bar/line — Billboard's built-in legend is hidden to
-  // avoid overlapping the x-axis tick labels at the bottom.
-  const showCustomLegend =
-    chartType !== 'scatter' && crossData.yValues && crossData.yValues.length <= 20;
+  // Custom legend entries for bar/line — Billboard's built-in legend is hidden
+  // and replaced with color-coded chips rendered below the chart (matching the
+  // guided-tab ChartCard layout). Large value sets scroll within the legend box.
+  const showCustomLegend = chartType !== 'scatter' && crossData.yValues;
 
   const legendEntries = showCustomLegend
     ? crossData.yValues.map((v, i) => ({ label: v, color: CHART_COLORS[i % CHART_COLORS.length] }))
@@ -96,9 +96,19 @@ export default function CrossTaxonomyChart({ chartType, crossData, xLabel, yLabe
     <div>
       {toggle}
       <div className="[&_.bb-ygrid-line>line]:stroke-gray-300 [&_.bb-ygrid-line>line]:stroke-1 [&_.bb-line]:fill-none">
-        {/* Legend sits above the chart so it never overlaps the x-axis label or tick labels */}
+        <BillboardJS
+          key={`${chartType}-${xLabel}-${yLabel}-${crossData.xValues.length}`}
+          bb={bb}
+          options={{
+            ...options,
+            size: { height: 450 },
+            resize: { auto: true },
+          }}
+        />
+        {/* Color-coded legend below the chart, mirroring the guided-tab cards.
+            Scrolls when a field has many values so it never dominates the page. */}
         {legendEntries.length > 0 && (
-          <div className="flex flex-wrap gap-x-4 gap-y-1 mb-2 px-8 justify-center">
+          <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 px-8 justify-center max-h-40 overflow-y-auto">
             {legendEntries.map(({ label, color }) => (
               <div key={label} className="flex items-center gap-1 text-xs text-gray-600">
                 <span
@@ -110,15 +120,6 @@ export default function CrossTaxonomyChart({ chartType, crossData, xLabel, yLabe
             ))}
           </div>
         )}
-        <BillboardJS
-          key={`${chartType}-${xLabel}-${yLabel}-${crossData.xValues.length}`}
-          bb={bb}
-          options={{
-            ...options,
-            size: { height: 450 },
-            resize: { auto: true },
-          }}
-        />
       </div>
     </div>
   );
@@ -180,6 +181,9 @@ function CrossIncidentList({ crossData, xLabel, yLabel, t }) {
   );
 }
 
+// Long category labels are shortened on the axis; the tooltip shows the full value.
+const truncateTick = (name) => (name.length > 22 ? `${name.slice(0, 21)}…` : name);
+
 function buildBarLineOptions(crossData, chartType, xLabel, yLabel, t) {
   const columns = toBillboardColumns(crossData);
 
@@ -187,12 +191,19 @@ function buildBarLineOptions(crossData, chartType, xLabel, yLabel, t) {
 
   const isStacked = chartType === 'histogram';
 
-  // Assign explicit colors so bars match the custom React legend rendered above the chart
+  // Assign explicit colors so bars match the custom React legend rendered below the chart
   const colorMap = {};
 
   crossData.yValues.forEach((v, i) => {
     colorMap[v] = CHART_COLORS[i % CHART_COLORS.length];
   });
+
+  // Rotate tick labels diagonally when they would crowd each other — billboard's
+  // own autorotate tolerates touching labels, so decide deterministically.
+  // Positive rotation extends labels to the right, where billboard reserves
+  // overflow padding; clippath must be off for that calculation to work.
+  const rotateTicks =
+    crossData.xValues.length > 4 || crossData.xValues.some((v) => String(v).length > 14);
 
   return {
     data: {
@@ -206,23 +217,37 @@ function buildBarLineOptions(crossData, chartType, xLabel, yLabel, t) {
       x: {
         type: 'category',
         label: { text: t(xLabel), position: 'outer-center' },
-        tick: { multiline: true },
-        height: 160,
+        // No fixed height: billboard sizes the axis to its labels, keeping the
+        // x-axis title close under the ticks instead of stranded far below.
+        tick: rotateTicks
+          ? {
+              rotate: 30,
+              multiline: false,
+              culling: false,
+              clippath: false,
+              format: (i, name) => truncateTick(String(name)),
+            }
+          : { multiline: true },
       },
       y: {
         label: { text: t('Count'), position: 'outer-middle' },
       },
     },
+    ...(rotateTicks && { padding: { right: 40 } }),
     bar: {
       width: { ratio: 0.7 },
     },
     grid: { y: { show: false } },
-    // Billboard's built-in legend is hidden — custom legend is rendered above the chart
+    // Billboard's built-in legend is hidden — custom legend is rendered below the chart
     legend: {
       show: false,
     },
     tooltip: {
       grouped: true,
+      format: {
+        // Full, untruncated category value in the tooltip title
+        title: (x) => crossData.xValues[x] || '',
+      },
     },
   };
 }

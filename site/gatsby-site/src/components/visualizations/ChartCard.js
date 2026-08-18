@@ -297,11 +297,14 @@ function BarLineChartBody({ entries, t, activeType, showPct, denominator, sortBy
           // and rely on the color legend rendered below the chart instead.
           show: isTimeSeries,
           ...(isTimeSeries && {
+            // Rotate year labels well before they can collide — billboard's own
+            // autorotate tolerates touching labels, so use a fixed threshold.
             tick: {
-              rotate: entries.length > 10 ? -30 : 0,
+              rotate: entries.length > 6 ? -30 : 0,
               multiline: false,
+              culling: false,
             },
-            height: entries.length > 10 ? 60 : 40,
+            height: entries.length > 6 ? 60 : 40,
           }),
         },
         y: {
