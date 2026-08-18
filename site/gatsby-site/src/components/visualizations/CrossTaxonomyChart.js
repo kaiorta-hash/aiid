@@ -213,8 +213,10 @@ function buildBarLineOptions(crossData, chartType, xLabel, yLabel, t) {
       x: {
         type: 'category',
         label: { text: t(xLabel), position: 'outer-center' },
-        // No fixed height: billboard sizes the axis to its labels, keeping the
-        // x-axis title close under the ticks instead of stranded far below.
+        // Fixed axis heights sized for ticks plus the axis title: billboard's
+        // auto height under-reserves for the title with the site's font and
+        // clips it, while an oversized value strands the title far below.
+        height: rotateTicks ? 100 : 60,
         tick: rotateTicks
           ? {
               rotate: 30,
