@@ -12,6 +12,7 @@ import {
   buildCrossData,
   buildIncidentEntityMap,
   getFieldValues,
+  parseKey,
 } from 'utils/crossTaxonomy';
 import {
   transformTaxas,
@@ -275,14 +276,6 @@ const CHART_TYPES = [
   { value: 'line', label: 'Line Chart' },
 ];
 
-// Split "namespace::field" key into its parts.
-function parseKey(key) {
-  if (!key) return { namespace: '', field: '' };
-  const [namespace, ...rest] = key.split('::');
-
-  return { namespace, field: rest.join('::') };
-}
-
 // ---------------------------------------------------------------------------
 // ExplorerPanel — one self-contained controls + chart unit.
 // The first panel on the page wires its callbacks to URL params so the chart
@@ -543,6 +536,7 @@ export default function CrossTaxonomyPage({ data }) {
   const [query, setQuery] = useQueryParams({
     tab: withDefault(StringParam, ''),
     sel: withDefault(StringParam, ''),
+    mode: withDefault(StringParam, ''),
     chartType: withDefault(StringParam, ''),
     x: withDefault(StringParam, ''),
     y: withDefault(StringParam, ''),
@@ -565,7 +559,15 @@ export default function CrossTaxonomyPage({ data }) {
 
   const guidedSelection = (mounted && query.sel) || '';
 
-  const chartType = (mounted && query.chartType) || 'bar';
+  // Mode index for guided tabs with a selector-mode toggle ("By Affected").
+  // Kept in the URL so shared links restore the mode along with the selection.
+  const guidedModeIdx = mounted && /^\d+$/.test(query.mode) ? parseInt(query.mode, 10) : 0;
+
+  const chartTypeParam = (mounted && query.chartType) || 'bar';
+
+  // Only chart types offered by the selector are honored; anything else in the
+  // URL (stale or hand-edited) falls back to the default.
+  const chartType = CHART_TYPES.some((ct) => ct.value === chartTypeParam) ? chartTypeParam : 'bar';
 
   const xAxisKey = (mounted && query.x) || '';
 
@@ -576,11 +578,18 @@ export default function CrossTaxonomyPage({ data }) {
   const filterValue = (mounted && query.filterValue) || '';
 
   const setActiveTab = useCallback(
-    (tab) => setQuery({ tab: tab || undefined, sel: undefined }),
+    (tab) => setQuery({ tab: tab || undefined, sel: undefined, mode: undefined }),
     [setQuery]
   );
 
   const setGuidedSelection = useCallback((v) => setQuery({ sel: v || undefined }), [setQuery]);
+
+  // Switching mode clears the selection — values from one mode are meaningless
+  // in the other (demographic bases vs. named harmed parties).
+  const setGuidedModeIdx = useCallback(
+    (i) => setQuery({ mode: i ? String(i) : undefined, sel: undefined }),
+    [setQuery]
+  );
 
   const setChartType = useCallback((v) => setQuery({ chartType: v || undefined }), [setQuery]);
 
@@ -729,6 +738,8 @@ export default function CrossTaxonomyPage({ data }) {
             config={GUIDED_TAB_CONFIGS[activeTab]}
             selectedValue={guidedSelection}
             onSelectValue={setGuidedSelection}
+            activeModeIdx={guidedModeIdx}
+            onSelectMode={setGuidedModeIdx}
             groupedClassifications={groupedClassifications}
             allClassifications={allClassifications}
             incidentEntityMap={incidentEntityMap}

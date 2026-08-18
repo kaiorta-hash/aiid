@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import BillboardJS from '@billboard.js/react';
-import bb, { bar, line, scatter } from 'billboard.js';
+import { bar, line, scatter } from 'billboard.js';
 import { toBillboardColumns, toScatterData } from 'utils/crossTaxonomy';
 import { Trans, useTranslation } from 'react-i18next';
-import { IncidentLinks } from 'components/visualizations/ChartCard';
+import { BillboardChart, IncidentLinks } from 'components/visualizations/ChartCard';
 
 // Shared color palette — same order Billboard will use via data.colors
 const CHART_COLORS = [
@@ -39,10 +38,12 @@ export default function CrossTaxonomyChart({ chartType, crossData, xLabel, yLabe
   const options = useMemo(() => {
     if (!crossData || crossData.xValues.length === 0) return null;
 
-    if (chartType === 'scatter') {
-      return buildScatterOptions(crossData, xLabel, yLabel, t);
-    }
-    return buildBarLineOptions(crossData, chartType, xLabel, yLabel, t);
+    const base =
+      chartType === 'scatter'
+        ? buildScatterOptions(crossData, xLabel, yLabel, t)
+        : buildBarLineOptions(crossData, chartType, xLabel, yLabel, t);
+
+    return { ...base, size: { height: 450 }, resize: { auto: true } };
   }, [crossData, chartType, xLabel, yLabel, t]);
 
   if (!options) return null;
@@ -96,15 +97,10 @@ export default function CrossTaxonomyChart({ chartType, crossData, xLabel, yLabe
     <div>
       {toggle}
       <div className="[&_.bb-ygrid-line>line]:stroke-gray-300 [&_.bb-ygrid-line>line]:stroke-1 [&_.bb-line]:fill-none">
-        <BillboardJS
-          key={`${chartType}-${xLabel}-${yLabel}-${crossData.xValues.length}`}
-          bb={bb}
-          options={{
-            ...options,
-            size: { height: 450 },
-            resize: { auto: true },
-          }}
-        />
+        {/* chartKey is the memoized options object: a new object means the data
+            changed (including filter changes), so the chart regenerates exactly
+            then — and the shared wrapper guards billboard's unmount crash. */}
+        <BillboardChart options={options} chartKey={options} />
         {/* Color-coded legend below the chart, mirroring the guided-tab cards.
             Scrolls when a field has many values so it never dominates the page. */}
         {legendEntries.length > 0 && (

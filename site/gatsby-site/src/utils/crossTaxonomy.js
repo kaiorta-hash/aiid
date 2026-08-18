@@ -1,6 +1,17 @@
 import { getClassificationValue } from './classifications';
 
 /**
+ * Splits a "namespace::field" selector key into its parts. Shared contract
+ * between the field-selector options and every consumer of those keys.
+ */
+export function parseKey(key) {
+  if (!key) return { namespace: '', field: '' };
+  const [namespace, ...rest] = key.split('::');
+
+  return { namespace, field: rest.join('::') };
+}
+
+/**
  * Groups a flat array of classification documents by incident_id.
  * Returns a Map<number, Classification[]>.
  */

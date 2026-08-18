@@ -147,9 +147,14 @@ export default function SearchableSelect({ id, options, value, onChange, placeho
             } else if (e.key === 'ArrowUp') {
               e.preventDefault();
               setHighlightedIndex((prev) => Math.max(prev - 1, 0));
-            } else if (e.key === 'Enter' && filtered.length > 0) {
+            } else if (e.key === 'Enter') {
               e.preventDefault();
-              select(filtered[highlightedIndex >= 0 ? highlightedIndex : 0].value);
+              // Only select while the dropdown is visible — otherwise Enter on a
+              // focused, closed input would silently replace the selection with
+              // the first option.
+              if (isOpen && filtered.length > 0) {
+                select(filtered[highlightedIndex >= 0 ? highlightedIndex : 0].value);
+              }
             }
           }}
           autoComplete="off"

@@ -31,7 +31,9 @@ const COLORS = [
 // React 18 Strict Mode. Billboard's class-component destroy() fires on a DOM
 // node that React has already detached; useLayoutEffect + try/catch prevents
 // that from bubbling up as an unhandled error.
-function BillboardChart({ options, chartKey }) {
+// Exported for reuse by CrossTaxonomyChart: passing the memoized options object
+// itself as chartKey regenerates the chart exactly when the data changes.
+export function BillboardChart({ options, chartKey }) {
   const elRef = useRef(null);
 
   useLayoutEffect(() => {

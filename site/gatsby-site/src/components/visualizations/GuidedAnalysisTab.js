@@ -10,15 +10,8 @@ import {
   getEntityValues,
   countEntityIncidents,
   buildEntityFilteredCounts,
+  parseKey,
 } from 'utils/crossTaxonomy';
-
-// Split "namespace::field" key into its parts (mirrors parseKey in cross-taxonomy.js).
-function parseKey(key) {
-  if (!key) return { namespace: '', field: '' };
-  const [namespace, ...rest] = key.split('::');
-
-  return { namespace, field: rest.join('::') };
-}
 
 // ---------------------------------------------------------------------------
 // AdHocChartPanel — a user-added visualization below the hardcoded charts.
@@ -226,6 +219,8 @@ export default function GuidedAnalysisTab({
   config,
   selectedValue,
   onSelectValue,
+  activeModeIdx = 0,
+  onSelectMode = () => {},
   groupedClassifications,
   allClassifications,
   incidentEntityMap,
@@ -241,11 +236,13 @@ export default function GuidedAnalysisTab({
   // modes pass config through unchanged.
   const modes = config.modes;
 
-  const [activeModeIdx, setActiveModeIdx] = useState(0);
+  // Mode comes from the URL (via the page) so shared links restore it along
+  // with the selection. Guard against out-of-range values from stale URLs.
+  const modeIdx = modes && activeModeIdx >= 0 && activeModeIdx < modes.length ? activeModeIdx : 0;
 
   const effectiveConfig = useMemo(
-    () => (modes ? { ...config, ...modes[activeModeIdx] } : config),
-    [config, modes, activeModeIdx]
+    () => (modes ? { ...config, ...modes[modeIdx] } : config),
+    [config, modes, modeIdx]
   );
 
   const isEntitySource = effectiveConfig.selectorSource === 'entity';
@@ -259,7 +256,7 @@ export default function GuidedAnalysisTab({
   // Clear ad-hoc visualizations when the selected value or active mode changes
   useEffect(() => {
     setAdHocCharts([]);
-  }, [selectedValue, config, activeModeIdx]);
+  }, [selectedValue, config, modeIdx]);
 
   // Get available values for the selector dropdown, sorted by frequency
   const selectorOptions = useMemo(() => {
@@ -357,14 +354,9 @@ export default function GuidedAnalysisTab({
               <button
                 key={mode.modeLabel}
                 type="button"
-                onClick={() => {
-                  setActiveModeIdx(i);
-                  onSelectValue('');
-                }}
+                onClick={() => onSelectMode(i)}
                 className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  activeModeIdx === i
-                    ? 'bg-blue-500 text-white'
-                    : 'text-gray-600 hover:text-gray-900'
+                  modeIdx === i ? 'bg-blue-500 text-white' : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
                 {t(mode.modeLabel)}
