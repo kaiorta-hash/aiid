@@ -491,13 +491,20 @@ function ExplorerPanel({
 export default function CrossTaxonomyPage({ data }) {
   const { t } = useTranslation();
 
-  const [coverageDismissed, setCoverageDismissed] = useState(() => {
+  const [coverageDismissed, setCoverageDismissed] = useState(false);
+
+  // localStorage is unavailable during the build, so the built HTML always
+  // contains the coverage notice; read the stored dismissal only after mount
+  // so the first client render matches the server HTML (hydration-safe).
+  useEffect(() => {
     try {
-      return localStorage.getItem('aiid-coverage-notice-dismissed') === '1';
+      if (localStorage.getItem('aiid-coverage-notice-dismissed') === '1') {
+        setCoverageDismissed(true);
+      }
     } catch {
-      return false;
+      /* localStorage unavailable */
     }
-  });
+  }, []);
 
   const dismissCoverage = () => {
     try {
