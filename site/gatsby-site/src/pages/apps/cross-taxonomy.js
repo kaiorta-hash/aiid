@@ -488,7 +488,7 @@ function ExplorerPanel({
 }
 // ---------------------------------------------------------------------------
 
-export default function CrossTaxonomyPage({ data, ...props }) {
+export default function CrossTaxonomyPage({ data }) {
   const { t } = useTranslation();
 
   const [coverageDismissed, setCoverageDismissed] = useState(() => {
@@ -655,7 +655,7 @@ export default function CrossTaxonomyPage({ data, ...props }) {
   const hasSelection = activeTab === 'custom' ? xAxisKey && yAxisKey : guidedSelection;
 
   return (
-    <div {...props}>
+    <div>
       <div className="flex flex-col gap-6">
         {/* Header */}
         <div className="flex flex-wrap items-center justify-between gap-4">
