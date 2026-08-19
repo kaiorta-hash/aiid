@@ -408,7 +408,7 @@ export default function GuidedAnalysisTab({
           {incidentCount < 3 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800 text-sm">
               <Trans>
-                Too few classified incidents ({{ count: incidentCount }}) to generate meaningful
+                Too few classified incidents ({{ incidents: incidentCount }}) to generate meaningful
                 visualizations. Try selecting a more commonly represented option.
               </Trans>
             </div>
@@ -419,7 +419,7 @@ export default function GuidedAnalysisTab({
               {incidentCount < 10 && (
                 <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-yellow-800 text-xs">
                   <Trans>
-                    Small sample size ({{ count: incidentCount }} incidents). Results may not be
+                    Small sample size ({{ incidents: incidentCount }} incidents). Results may not be
                     representative.
                   </Trans>
                 </div>

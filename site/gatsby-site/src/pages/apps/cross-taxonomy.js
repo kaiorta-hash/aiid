@@ -445,8 +445,8 @@ function ExplorerPanel({
           {crossData.incidentCount < 5 && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-yellow-800 text-sm">
               <Trans>
-                Warning: Only {{ count: crossData.incidentCount }} incidents have classifications
-                for both selected fields. Results may not be representative.
+                Warning: Only {{ incidents: crossData.incidentCount }} incidents have
+                classifications for both selected fields. Results may not be representative.
               </Trans>
             </div>
           )}
